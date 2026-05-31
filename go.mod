@@ -1,4 +1,4 @@
-module github.com/birenkumar/oracle-fusion-schema
+module github.com/birendrakm0508-sudo/oracle-fusion-schema
 
 go 1.22.0
 
