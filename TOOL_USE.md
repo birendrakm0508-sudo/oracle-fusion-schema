@@ -10,18 +10,22 @@ All commands accept `--json` for machine-readable output.
 
 ```
 Need to build a BIP report?
-  1. datasource  <table>  --> which JDBC connection string to use
-  2. describe    <table>  --> full column schema for your SQL
-  3. columns     <col>    --> find join candidates across tables
-  4. search      <term>   --> discover tables you don't know yet
+  1. datasource      <table>          --> which JDBC connection string to use
+  2. describe        <table>          --> full column schema for your SQL
+  3. columns         <col>            --> find join candidates across tables
+  4. lookup-target   <table>.<col>    --> resolve coded columns to lookup tables in one call
+  5. search          <term>           --> discover tables you don't know yet
+
+SQL has a coded column (TYPE_ID, STATUS_CODE, FLAG)?
+  1. lookup-target <table>.<column>   --> returns _B/_TL/_VL chain, join col, name col, sample SQL
 
 Migrating from EBS?
-  1. mapping lookup <ebs-table>  --> get the Fusion equivalent
-  2. describe <fusion-table>     --> verify columns exist
+  1. mapping lookup <ebs-table>       --> get the Fusion equivalent
+  2. describe <fusion-table>          --> verify columns exist
 
 Don't know the table name?
-  1. search <keyword>            --> searches names + columns + descriptions
-  2. tables <domain>             --> browse all tables in a domain
+  1. search <keyword>                 --> searches names + columns + descriptions
+  2. tables <domain>                  --> browse all tables in a domain
 ```
 
 ---
@@ -311,7 +315,77 @@ oracle-fusion-schema export --format json --domain hcm --output hcm-schema.json
 
 ---
 
-### 9. `sync [--domain <d>] [--workers N] [--force] [--quiet]`
+### 9. `lookup-target <TABLE.COLUMN> [--json] [--strict]`
+
+**Purpose:** Resolve a coded column (e.g., `*_TYPE_ID`, `*_CODE`, `*_STATUS`) to its canonical lookup table chain in one call. Returns the base table, `_TL` translation table, `_VL` view, join column, name column, data source, and ready-to-paste JOIN SQL.
+
+**When to use:** Your SQL references a coded/ID column and you need to translate it to human-readable names. This replaces the 5-call pattern of search + describe + describe + describe + datasource with a single call.
+
+```
+oracle-fusion-schema lookup-target INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID --json
+```
+
+**JSON shape:**
+```json
+{
+  "source": {
+    "table": "INV_RESERVATIONS",
+    "column": "SUPPLY_SOURCE_TYPE_ID",
+    "data_type": "NUMBER"
+  },
+  "target": {
+    "base_table": "INV_TXN_SOURCE_TYPES_B",
+    "tl_table": "INV_TXN_SOURCE_TYPES_TL",
+    "vl_view": "INV_TXN_SOURCE_TYPES_VL",
+    "join_column": "TRANSACTION_SOURCE_TYPE_ID",
+    "name_column": "TRANSACTION_SOURCE_TYPE_NAME",
+    "description_column": "DESCRIPTION",
+    "data_source": "ApplicationDB_FSCM"
+  },
+  "resolution": {
+    "method": "fk_metadata",
+    "confidence": "high",
+    "tl_exists": true,
+    "vl_exists": true
+  },
+  "sample_join_sql": "AND src.supply_source_type_id = tgt.transaction_source_type_id\nAND tgt.language = USERENV('LANG')"
+}
+```
+
+**When the column resolves to FND_LOOKUPS (code/type/flag columns):**
+```json
+{
+  "source": { "table": "EGP_SYSTEM_ITEMS_B", "column": "ITEM_TYPE", "data_type": "VARCHAR2" },
+  "target": {
+    "base_table": "FND_LOOKUP_VALUES_B",
+    "tl_table": "FND_LOOKUP_VALUES_TL",
+    "vl_view": "FND_LOOKUP_VALUES_VL",
+    "join_column": "LOOKUP_CODE",
+    "name_column": "MEANING",
+    "description_column": "DESCRIPTION",
+    "data_source": "ApplicationDB_FSCM",
+    "lookup_type": "ITEM_TYPE"
+  },
+  "resolution": { "method": "heuristic", "confidence": "medium", "tl_exists": true, "vl_exists": true }
+}
+```
+
+**Resolution cascade:** The command tries three strategies in order, stops at the first match:
+
+| Priority | Method | Confidence | What it checks |
+|----------|--------|------------|----------------|
+| 1 | `fk_metadata` | high | FK relationships from Oracle docs |
+| 2 | `heuristic` | medium | Naming conventions: `*_TYPE_ID` -> `*_TYPES_B`, `*_CODE`/`*_FLAG` -> `FND_LOOKUPS` |
+| 3 | `static_map` | medium | Top-20 cross-module FK targets (VENDOR_ID, PERSON_ID, LEDGER_ID, etc.) |
+
+**Key fields:** Use `target.join_column` for your WHERE clause, `target.name_column` for the display value, and `target.data_source` for the BIP JDBC connection. The `sample_join_sql` is a copy-pasteable WHERE fragment.
+
+**Flags:**
+- `--strict` -- Exit code 1 if no target found (default: returns `resolution.method = "none"` with advice).
+
+---
+
+### 10. `sync [--domain <d>] [--workers N] [--force] [--quiet]`
 
 **Purpose:** Download and index documentation from docs.oracle.com. Only needed on first setup or to refresh data.
 
@@ -391,6 +465,36 @@ Step 2: These are DIFFERENT data sources -- you need two data sets in the BIP da
 Step 3: Link data sets at the data model level using a shared key (e.g., PERSON_ID)
 ```
 
+### Workflow E: Resolve coded columns to display names (lookup-target)
+
+```
+Scenario: Your SQL has INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID (a NUMBER).
+The report needs to show the source type NAME, not the raw ID.
+
+Old way (5 calls):
+  oracle-fusion-schema search "txn source type" --domain scm --json
+  oracle-fusion-schema describe INV_TXN_SOURCE_TYPES_B --columns-only --json
+  oracle-fusion-schema describe INV_TXN_SOURCE_TYPES_TL --columns-only --json
+  oracle-fusion-schema datasource INV_TXN_SOURCE_TYPES_TL --json
+  --> Then manually figure out join column, name column, language filter
+
+New way (1 call):
+  oracle-fusion-schema lookup-target INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID --json
+  --> Returns everything: target table, _TL, _VL, join column, name column,
+      data source, and sample JOIN SQL ready to paste
+
+Use the sample_join_sql directly in your WHERE clause:
+  AND src.supply_source_type_id = tgt.transaction_source_type_id
+  AND tgt.language = USERENV('LANG')
+
+For FND_LOOKUPS-based codes (ITEM_TYPE, PARTY_TYPE, STATUS_CODE, etc.):
+  oracle-fusion-schema lookup-target EGP_SYSTEM_ITEMS_B.ITEM_TYPE --json
+  --> Returns FND_LOOKUP_VALUES with lookup_type='ITEM_TYPE' and sample SQL:
+      AND src.item_type = lk.lookup_code
+      AND lk.lookup_type = 'ITEM_TYPE'
+      AND lk.language    = USERENV('LANG')
+```
+
 ---
 
 ## Tips for Agents
@@ -425,3 +529,7 @@ Step 3: Link data sets at the data model level using a shared key (e.g., PERSON_
    - `ZCA_` = Common CRM, `ZMM_` = Sales Activities, `ZSO_` = Sales Content
 
 10. **If mapping lookup returns nothing,** the table name may be the same in EBS and Fusion (e.g., `AP_INVOICES_ALL`, `GL_JE_HEADERS`). Try `describe` directly with the EBS name.
+
+11. **Use `lookup-target` for any coded column before manually chasing lookups.** If a column ends in `_TYPE_ID`, `_CODE`, `_STATUS`, `_FLAG`, or is a short coded value like `ITEM_TYPE`, run `lookup-target TABLE.COLUMN --json` first. It resolves the full _B/_TL/_VL chain, join column, name column, and data source in one call. Check `resolution.confidence` -- `high` means FK metadata backed it, `medium` means naming heuristic or static map.
+
+12. **The `sample_join_sql` from `lookup-target` is copy-pasteable.** It uses `src`/`tgt`/`lk` aliases matching BIP SQL conventions. For FND_LOOKUPS targets, it includes the `lookup_type` and `language` filters automatically.

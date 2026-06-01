@@ -71,6 +71,7 @@ the rest of the session.
 |-----------|-------------|
 | Need column names/types before writing SQL | `describe <TABLE> --json` |
 | Need the JDBC data source for a BIP data model | `datasource <TABLE> --json` |
+| SQL has a coded column (_TYPE_ID, _CODE, _FLAG) | `lookup-target <TABLE>.<COLUMN> --json` |
 | Don't know which table holds the data | `search <keyword> --json` |
 | Need to find join columns between tables | `columns <COL_NAME> --json` |
 | Migrating an EBS report to Fusion | `mapping lookup <EBS_TABLE> --json` |
@@ -300,7 +301,51 @@ If lookup returns nothing, the table name may be identical in EBS and Fusion
 
 ---
 
-### 6. `tables [domain] [--json] [--type <t>] [--count]`
+### 6. `lookup-target <TABLE.COLUMN> [--json] [--strict]`
+
+Resolve a coded column to its canonical lookup table chain (_B/_TL/_VL) in one
+call. Returns the target table, join column, name column, data source, and
+sample JOIN SQL. **Use this instead of the 5-call search+describe chain when
+your SQL has a `*_TYPE_ID`, `*_CODE`, `*_STATUS`, or `*_FLAG` column.**
+
+```bash
+oracle-fusion-schema lookup-target INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID --json
+```
+
+```json
+{
+  "source": { "table": "INV_RESERVATIONS", "column": "SUPPLY_SOURCE_TYPE_ID", "data_type": "NUMBER" },
+  "target": {
+    "base_table": "INV_TXN_SOURCE_TYPES_B",
+    "tl_table": "INV_TXN_SOURCE_TYPES_TL",
+    "vl_view": "INV_TXN_SOURCE_TYPES_VL",
+    "join_column": "TRANSACTION_SOURCE_TYPE_ID",
+    "name_column": "TRANSACTION_SOURCE_TYPE_NAME",
+    "description_column": "DESCRIPTION",
+    "data_source": "ApplicationDB_FSCM"
+  },
+  "resolution": { "method": "fk_metadata", "confidence": "high", "tl_exists": true, "vl_exists": true },
+  "sample_join_sql": "AND src.supply_source_type_id = tgt.transaction_source_type_id\nAND tgt.language = USERENV('LANG')"
+}
+```
+
+For FND_LOOKUPS-based codes (ITEM_TYPE, PARTY_TYPE, etc.):
+```bash
+oracle-fusion-schema lookup-target EGP_SYSTEM_ITEMS_B.ITEM_TYPE --json
+```
+Returns `target.lookup_type = "ITEM_TYPE"` with FND_LOOKUP_VALUES join SQL.
+
+**Resolution cascade:** `fk_metadata` (high) → naming heuristic (medium) → static map (medium).
+
+**Key fields:** `target.join_column` for WHERE, `target.name_column` for display,
+`target.data_source` for BIP connection, `sample_join_sql` for copy-paste.
+
+**Flags:**
+- `--strict` — Exit code 1 if no target found.
+
+---
+
+### 7. `tables [domain] [--json] [--type <t>] [--count]`
 
 List all tables in a domain. Use for browsing or getting a count.
 
@@ -314,7 +359,7 @@ oracle-fusion-schema tables financials --type view --json
 
 ---
 
-### 7. `domains [--json]`
+### 8. `domains [--json]`
 
 List all indexed domains with table counts.
 
@@ -324,7 +369,7 @@ oracle-fusion-schema domains --json
 
 ---
 
-### 8. `export [--format json|csv] [--domain <d>] [--output <file>]`
+### 9. `export [--format json|csv] [--domain <d>] [--output <file>]`
 
 Bulk export schema data for feeding into other tools.
 
@@ -386,6 +431,34 @@ When you need to join two tables but don't know the FK column:
 
 This replaces reading ER diagrams. Three `columns` calls can map an entire
 multi-table join chain.
+
+### Workflow F: Resolve coded columns to display names
+
+When your SQL has a `*_TYPE_ID`, `*_CODE`, or `*_FLAG` column and you need the
+human-readable name:
+
+```
+1. lookup-target INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID --json
+   --> Returns in ONE call:
+       target table:  INV_TXN_SOURCE_TYPES_B
+       _TL table:     INV_TXN_SOURCE_TYPES_TL
+       join column:   TRANSACTION_SOURCE_TYPE_ID
+       name column:   TRANSACTION_SOURCE_TYPE_NAME
+       data source:   ApplicationDB_FSCM
+       sample SQL:    AND src.supply_source_type_id = tgt.transaction_source_type_id
+                      AND tgt.language = USERENV('LANG')
+
+2. Paste sample_join_sql into your WHERE clause. Done.
+```
+
+For FND_LOOKUPS-based codes:
+```
+1. lookup-target EGP_SYSTEM_ITEMS_B.ITEM_TYPE --json
+   --> lookup_type: ITEM_TYPE
+       sample SQL: AND src.item_type = lk.lookup_code
+                   AND lk.lookup_type = 'ITEM_TYPE'
+                   AND lk.language    = USERENV('LANG')
+```
 
 ---
 
