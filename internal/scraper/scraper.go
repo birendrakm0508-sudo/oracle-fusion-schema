@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/birenkumar/oracle-fusion-schema/internal/model"
+	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/model"
 )
 
 // KnownDomains returns all Oracle Fusion Cloud documentation domains.

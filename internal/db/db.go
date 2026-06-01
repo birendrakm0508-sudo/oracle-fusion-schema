@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/birenkumar/oracle-fusion-schema/internal/model"
+	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/model"
 	_ "modernc.org/sqlite"
 )
 
@@ -686,6 +686,56 @@ func (s *Store) ListModules(domain string) ([]string, error) {
 		modules = append(modules, m)
 	}
 	return modules, rows.Err()
+}
+
+// TableExists checks if a table exists in the schema DB (case-insensitive).
+func (s *Store) TableExists(name string) bool {
+	var dummy int
+	err := s.db.QueryRow(`SELECT 1 FROM tables WHERE UPPER(name) = ? LIMIT 1`, strings.ToUpper(name)).Scan(&dummy)
+	return err == nil
+}
+
+// GetColumnInfo retrieves a single column's metadata from a specific table.
+// Returns nil, nil if not found.
+func (s *Store) GetColumnInfo(tableName, colName string) (*model.Column, error) {
+	var c model.Column
+	var nullable int
+	err := s.db.QueryRow(`
+		SELECT c.name, c.data_type, c.length, c.precision, c.nullable, c.description, c.position
+		FROM columns c JOIN tables t ON c.table_id = t.id
+		WHERE UPPER(t.name) = ? AND UPPER(c.name) = ?
+		LIMIT 1`,
+		strings.ToUpper(tableName), strings.ToUpper(colName)).Scan(
+		&c.Name, &c.DataType, &c.Length, &c.Precision, &nullable, &c.Description, &c.Position)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.Nullable = nullable == 1
+	return &c, nil
+}
+
+// GetFKTarget finds the target (referenced) table for a given table's FK column.
+// The foreign_keys table stores: table_id = source table, referencing_table = target table,
+// fk_column = the column name on the source that holds the FK.
+// Returns empty string if no FK metadata found.
+func (s *Store) GetFKTarget(sourceTable, fkColumn string) (string, error) {
+	var target string
+	err := s.db.QueryRow(`
+		SELECT fk.referencing_table
+		FROM foreign_keys fk JOIN tables t ON fk.table_id = t.id
+		WHERE UPPER(t.name) = ? AND UPPER(fk.fk_column) = ?
+		LIMIT 1`,
+		strings.ToUpper(sourceTable), strings.ToUpper(fkColumn)).Scan(&target)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.ToUpper(target), nil
 }
 
 func boolToInt(b bool) int {

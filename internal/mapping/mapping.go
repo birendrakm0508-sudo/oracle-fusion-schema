@@ -4,7 +4,7 @@ package mapping
 import (
 	"strings"
 
-	"github.com/birenkumar/oracle-fusion-schema/internal/model"
+	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/model"
 )
 
 // builtinEBSMappings contains well-known EBS -> Fusion table name changes.

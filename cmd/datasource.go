@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/birenkumar/oracle-fusion-schema/internal/mapping"
+	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/mapping"
 )
 
 var datasourceCmd = &cobra.Command{

@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/birenkumar/oracle-fusion-schema/internal/scraper"
+	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/scraper"
 )
 
 var (
