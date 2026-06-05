@@ -81,7 +81,7 @@ oracle-fusion-schema describe GL_JE_HEADERS --json
       "position": 1
     }
   ],
-  "primary_keys": [...],
+  "primary_key": { "name": "GL_JE_HEADERS_PK", "columns": ["JE_HEADER_ID"] },
   "indexes": [...],
   "foreign_keys": [...]
 }
@@ -89,15 +89,15 @@ oracle-fusion-schema describe GL_JE_HEADERS --json
 
 **Key fields per column:** `name`, `data_type` (NUMBER, VARCHAR2, DATE, TIMESTAMP, CLOB), `length` (for VARCHAR2), `precision` (for NUMBER), `nullable`, `description`.
 
-**Views (`_VL`, `_V`) return synthesized columns.** Oracle's view documentation pages don't enumerate columns, so for a view the CLI synthesizes the column list from the underlying `_B` base table plus the `_TL` translation table's display columns (excluding `LANGUAGE` and `SOURCE_LANG`, which the view filters out). A top-level `column_source` field marks how the list was produced:
+**Views (`_VL`, `_V`) return their published columns, type-enriched.** Oracle's view pages list the view's projected column names (names only, no datatypes). The CLI captures that authoritative list — including view-specific derived columns — and enriches each column's datatype/description by matching its name against the underlying `_B`/`_TL` tables. A top-level `column_source` field marks how the list was produced:
 
 | `column_source` | Meaning |
 |-----------------|---------|
-| `docs` | Columns came straight from the documentation |
-| `synthesized_from_b_tl` | Composed from `_B` (+ optional `_TL`) following the Fusion view convention |
+| `docs` | Column names came from the view page; types enriched from `_B`/`_TL` |
+| `synthesized_from_b_tl` | Fallback: composed from `_B` (+ optional `_TL`) when the view page had no list |
 | `unknown` | No base table found; `columns` is empty |
 
-This means you can verify a column exists on the `_VL` view the CLI recommends. The synthesized list will **not** contain `LANGUAGE` — so don't add a `LANGUAGE` predicate when joining to a `_VL` view.
+This means you can verify a column exists on the `_VL` view the CLI recommends. The published view list does **not** contain `LANGUAGE`/`SOURCE_LANG` — so don't add a `LANGUAGE` predicate when joining to a `_VL` view. View-specific derived columns (not present in `_B`/`_TL`) appear with an empty datatype.
 
 **EBS auto-mapping:** Passing an EBS table name automatically resolves it:
 ```
@@ -402,7 +402,7 @@ When the target has neither a `_TL` nor `_VL` companion, only a single `sample_j
 
 **Key fields:** Use `target.join_column` for your WHERE clause, `target.name_column` for the display value, and `target.data_source` for the BIP JDBC connection. Prefer `sample_join_sql_vl` as your copy-pasteable WHERE fragment.
 
-**`join_column` is always populated when a target resolves.** Resolution order: target primary key → same-name column on the target (handles natural keys like `PAYMENT_METHOD_CODE` when the docs recorded no PK) → first `_ID` column → `LOOKUP_CODE` for FND_LOOKUPS. If genuinely unresolvable, it serializes as `null` (not `""`) and `resolution.warning` explains why.
+**`join_column` is always populated when a target resolves.** Resolution order: same-name column on the target (strongest FK signal — handles natural/alternate keys like `VENDOR_ID` or `PAYMENT_METHOD_CODE`) → target primary key (authoritative for differently-named FKs such as `*_TYPE_ID` → `*_ID`) → first `_ID` column → `LOOKUP_CODE` for FND_LOOKUPS. If genuinely unresolvable, it serializes as `null` (not `""`) and `resolution.warning` explains why.
 
 **Flags:**
 - `--strict` -- Exit code 1 if no target found (default: returns `resolution.method = "none"` with advice).
@@ -562,4 +562,4 @@ For FND_LOOKUPS-based codes (ITEM_TYPE, PARTY_TYPE, STATUS_CODE, etc.):
 
 12. **Paste `sample_join_sql_vl`, not `sample_join_sql_tl`, when joining to a `_VL` view.** Fusion `_VL` views are defined as `_B ⋈ _TL WHERE _TL.LANGUAGE = USERENV('LANG')` — the `LANGUAGE` column is **not projected** out of the view. Pasting the `_tl` variant (with `AND tgt.language = USERENV('LANG')`) against a `_VL` view causes `ORA-00904: "LANGUAGE": invalid identifier` at runtime. The `_vl` variant omits that line. The bare `sample_join_sql` field is a deprecated alias for `_tl` — don't rely on it.
 
-13. **`describe <VIEW> --json` now returns a synthesized `columns` array.** Use it to confirm a column exists on the `_VL`/`_V` view before referencing it. The `column_source` field tells you whether the columns came from docs or were synthesized from `_B`+`_TL`. A synthesized `_VL` list never contains `LANGUAGE` — matching what you can actually SELECT from the view.
+13. **`describe <VIEW> --json` returns the view's published `columns` array** (type-enriched from `_B`/`_TL`). Use it to confirm a column exists on the `_VL`/`_V` view before referencing it. The `column_source` field is `docs` when scraped from the view page (the normal case) or `synthesized_from_b_tl` as a fallback. The list never contains `LANGUAGE`/`SOURCE_LANG` — matching what you can actually SELECT from the view.

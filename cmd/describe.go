@@ -68,10 +68,10 @@ func runDescribe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lookup table: %w", err)
 	}
 	if t != nil && strings.Contains(strings.ToUpper(t.Type), "VIEW") {
-		// Oracle's _VL / _V view docs don't enumerate columns. Synthesize them
-		// from the underlying _B / _TL tables so consumers can verify column
-		// existence on the view the CLI recommends.
-		cols, source := lookup.SynthesizeViewColumns(store, t)
+		// View pages publish column names but no types. Enrich the scraped names
+		// with type/description from the underlying _B / _TL tables (falling back
+		// to _B+_TL synthesis if the view has no scraped columns).
+		cols, source := lookup.ResolveViewColumns(store, t)
 		t.Columns = cols
 		t.ColumnSource = source
 	}

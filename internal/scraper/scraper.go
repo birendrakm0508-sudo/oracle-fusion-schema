@@ -208,8 +208,14 @@ func parseTablePage(htmlContent string, entry TOCEntry, domain model.Domain) (*m
 	// Extract description - usually the first paragraph after the title
 	t.Description = extractDescription(doc)
 
-	// Extract columns from the main table
-	t.Columns = extractColumns(doc)
+	// Extract columns from the main table. Base-table pages use a multi-column
+	// table (Name, Datatype, ...); view pages publish a single-column "Name"
+	// list, which extractColumns does not match — fall back to extractViewColumns.
+	cols := extractColumns(doc)
+	if len(cols) == 0 {
+		cols = extractViewColumns(doc)
+	}
+	t.Columns = cols
 
 	// Extract primary key
 	t.PrimaryKey = extractPrimaryKey(doc)
@@ -331,62 +337,107 @@ func extractColumns(doc *html.Node) []model.Column {
 }
 
 // extractPrimaryKey finds the primary key section.
+//
+// Oracle docs publish the PK in a two-column table under a "Primary Key" heading:
+//
+//	| Name                  | Columns             |
+//	| IBY_PAYMENT_METHODS_B_PK | PAYMENT_METHOD_CODE |
+//
+// We detect that table by its header shape (exactly two columns: Name + Columns,
+// and crucially NOT a Datatype column, which distinguishes it from the main
+// columns table) plus a data row whose Name cell ends in "_PK" (every Fusion PK
+// is named <TABLE>_PK). The Columns cell holds one or more PK column names.
 func extractPrimaryKey(doc *html.Node) *model.PK {
 	tables := findHTMLTables(doc)
 
-	// Look for PK section after the columns table
 	for _, tbl := range tables {
-		if len(tbl) < 1 {
+		if len(tbl) < 2 { // need header + at least one data row
 			continue
 		}
-		// Check all rows for PK-like content
-		for _, row := range tbl {
-			rowStr := strings.ToUpper(strings.Join(row, " "))
-			if strings.Contains(rowStr, "_PK") || strings.Contains(rowStr, "PRIMARY") {
-				// Found PK info
-				pk := &model.PK{}
-				for _, cell := range row {
-					cell = strings.TrimSpace(cell)
-					if strings.HasSuffix(strings.ToUpper(cell), "_PK") || strings.Contains(strings.ToUpper(cell), "PRIMARY") {
-						pk.Name = cell
-					}
-				}
-				// Look for column names in subsequent text
+		header := tbl[0]
+		if len(header) != 2 {
+			continue
+		}
+		headerStr := strings.ToUpper(strings.Join(header, " "))
+		isPKTable := strings.Contains(headerStr, "NAME") &&
+			strings.Contains(headerStr, "COLUMN") &&
+			!strings.Contains(headerStr, "DATATYPE") &&
+			!strings.Contains(headerStr, "DATA TYPE") &&
+			!strings.Contains(headerStr, "INDEX") &&
+			!strings.Contains(headerStr, "UNIQUE")
+		if !isPKTable {
+			continue
+		}
+
+		for _, row := range tbl[1:] {
+			if len(row) < 2 {
+				continue
+			}
+			name := strings.TrimSpace(row[0])
+			if !strings.HasSuffix(strings.ToUpper(name), "_PK") {
+				continue
+			}
+			pk := &model.PK{Name: name}
+			for _, col := range splitPKColumns(row[1]) {
+				pk.Columns = append(pk.Columns, col)
+			}
+			if len(pk.Columns) > 0 {
 				return pk
 			}
 		}
 	}
 
-	// Try searching text content for PK pattern
-	var pk *model.PK
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if pk != nil {
-			return
+	return nil
+}
+
+// splitPKColumns splits a primary-key Columns cell into individual column names.
+// Handles single, comma-separated, and whitespace-separated (composite) keys.
+func splitPKColumns(s string) []string {
+	s = strings.ReplaceAll(s, ",", " ")
+	return strings.Fields(s)
+}
+
+// extractViewColumns parses the column list from a view documentation page.
+//
+// Unlike base-table pages (which list Name + Datatype + ... per row),
+// Oracle's _VL / _V view pages publish a single-column "Name" table whose one
+// data cell contains every projected column name, whitespace-separated. The
+// published list includes view-specific derived columns and omits the
+// LANGUAGE / SOURCE_LANG columns that the view filters out. Types are not
+// listed on the view page (they are enriched later from the _B / _TL tables).
+func extractViewColumns(doc *html.Node) []model.Column {
+	tables := findHTMLTables(doc)
+
+	for _, tbl := range tables {
+		if len(tbl) < 2 {
+			continue
 		}
-		if n.Type == html.ElementNode {
-			if isHeading(n) || n.Data == "dt" || n.Data == "b" || n.Data == "strong" {
-				text := getTextContent(n)
-				if strings.Contains(strings.ToUpper(text), "PRIMARY KEY") || strings.HasSuffix(strings.ToUpper(text), "_PK") {
-					pk = &model.PK{Name: strings.TrimSpace(text)}
-				}
+		header := tbl[0]
+		if len(header) != 1 || !strings.EqualFold(strings.TrimSpace(header[0]), "Name") {
+			continue
+		}
+
+		var columns []model.Column
+		pos := 0
+		for _, row := range tbl[1:] {
+			if len(row) == 0 {
+				continue
 			}
-			// If we found the PK heading, look for column list
-			if pk != nil && pk.Name != "" && len(pk.Columns) == 0 {
-				if n.Data == "li" || n.Data == "dd" || n.Data == "td" {
-					text := strings.TrimSpace(getTextContent(n))
-					if text != "" && strings.ToUpper(text) == text && !strings.Contains(text, " ") {
-						pk.Columns = append(pk.Columns, text)
-					}
+			for _, name := range strings.Fields(row[0]) {
+				name = strings.TrimSpace(name)
+				if name == "" {
+					continue
 				}
+				pos++
+				columns = append(columns, model.Column{Name: name, Position: pos})
 			}
 		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
+		if len(columns) > 0 {
+			return columns
 		}
 	}
-	walk(doc)
-	return pk
+
+	return nil
 }
 
 // extractIndexes finds index definitions in the page.

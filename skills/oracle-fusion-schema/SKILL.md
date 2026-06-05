@@ -138,12 +138,14 @@ oracle-fusion-schema describe GL_JE_HEADERS --json
 Key column fields: `name`, `data_type` (NUMBER, VARCHAR2, DATE, TIMESTAMP,
 CLOB), `length` (VARCHAR2), `precision` (NUMBER), `nullable`, `description`.
 
-**Views (`_VL`/`_V`) return synthesized columns.** Oracle's view docs don't list
-columns, so the CLI synthesizes them from the underlying `_B` + `_TL` tables
-(excluding `LANGUAGE`/`SOURCE_LANG`, which the view filters out). A `column_source`
-field marks the origin: `docs`, `synthesized_from_b_tl`, or `unknown`. Use this to
+**Views (`_VL`/`_V`) return their published columns, type-enriched.** Oracle's
+view pages list the projected column names (names only); the CLI captures that
+authoritative list (including view-specific derived columns) and enriches each
+column's datatype/description from the underlying `_B`/`_TL` tables. A
+`column_source` field marks the origin: `docs` (scraped from the view page, the
+normal case), `synthesized_from_b_tl` (fallback), or `unknown`. Use this to
 verify a column exists on the `_VL` view before referencing it — and note the
-synthesized `_VL` list will never contain `LANGUAGE`.
+published list never contains `LANGUAGE`/`SOURCE_LANG`.
 
 **EBS auto-mapping:** Passing an EBS name automatically resolves it:
 ```bash
@@ -351,7 +353,7 @@ Returns `target.lookup_type = "ITEM_TYPE"` with FND_LOOKUP_VALUES join SQL.
 - **`sample_join_sql_tl`** — joining the raw `_TL` table (rare). Includes the `LANGUAGE` predicate.
 - **`sample_join_sql`** — DEPRECATED alias for `_tl`. Migrate to the explicit fields.
 
-**`join_column` is always populated** when a target resolves (PK → same-name column → first `_ID` → `LOOKUP_CODE`). It is `null` (with `resolution.warning`) only when genuinely unresolvable.
+**`join_column` is always populated** when a target resolves (same-name column → PK → first `_ID` → `LOOKUP_CODE`). It is `null` (with `resolution.warning`) only when genuinely unresolvable.
 
 **Key fields:** `target.join_column` for WHERE, `target.name_column` for display,
 `target.data_source` for BIP connection, `sample_join_sql_vl` for copy-paste.
