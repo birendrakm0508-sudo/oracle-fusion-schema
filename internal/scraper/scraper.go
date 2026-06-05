@@ -28,10 +28,10 @@ func KnownDomains() []model.Domain {
 
 // TOCEntry represents a table/view listed in the TOC page.
 type TOCEntry struct {
-	Name    string
-	URL     string
-	Module  string
-	Type    string // "Tables" or "Views"
+	Name   string
+	URL    string
+	Module string
+	Type   string // "Tables" or "Views"
 }
 
 // ProgressFunc is called with progress updates during scraping.
@@ -197,12 +197,12 @@ func parseTablePage(htmlContent string, entry TOCEntry, domain model.Domain) (*m
 	}
 
 	t := &model.Table{
-		Name:    entry.Name,
-		Domain:  domain.Code,
-		Module:  entry.Module,
-		Type:    entry.Type,
-		Schema:  "FUSION",
-		DocURL:  entry.URL,
+		Name:   entry.Name,
+		Domain: domain.Code,
+		Module: entry.Module,
+		Type:   entry.Type,
+		Schema: "FUSION",
+		DocURL: entry.URL,
 	}
 
 	// Extract description - usually the first paragraph after the title

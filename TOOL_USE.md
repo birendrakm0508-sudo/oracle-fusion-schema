@@ -89,6 +89,16 @@ oracle-fusion-schema describe GL_JE_HEADERS --json
 
 **Key fields per column:** `name`, `data_type` (NUMBER, VARCHAR2, DATE, TIMESTAMP, CLOB), `length` (for VARCHAR2), `precision` (for NUMBER), `nullable`, `description`.
 
+**Views (`_VL`, `_V`) return synthesized columns.** Oracle's view documentation pages don't enumerate columns, so for a view the CLI synthesizes the column list from the underlying `_B` base table plus the `_TL` translation table's display columns (excluding `LANGUAGE` and `SOURCE_LANG`, which the view filters out). A top-level `column_source` field marks how the list was produced:
+
+| `column_source` | Meaning |
+|-----------------|---------|
+| `docs` | Columns came straight from the documentation |
+| `synthesized_from_b_tl` | Composed from `_B` (+ optional `_TL`) following the Fusion view convention |
+| `unknown` | No base table found; `columns` is empty |
+
+This means you can verify a column exists on the `_VL` view the CLI recommends. The synthesized list will **not** contain `LANGUAGE` — so don't add a `LANGUAGE` predicate when joining to a `_VL` view.
+
 **EBS auto-mapping:** Passing an EBS table name automatically resolves it:
 ```
 oracle-fusion-schema describe MTL_SYSTEM_ITEMS_B
@@ -348,9 +358,21 @@ oracle-fusion-schema lookup-target INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID --json
     "tl_exists": true,
     "vl_exists": true
   },
+  "sample_join_sql_vl": "AND src.supply_source_type_id = tgt.transaction_source_type_id",
+  "sample_join_sql_tl": "AND src.supply_source_type_id = tgt.transaction_source_type_id\nAND tgt.language = USERENV('LANG')",
   "sample_join_sql": "AND src.supply_source_type_id = tgt.transaction_source_type_id\nAND tgt.language = USERENV('LANG')"
 }
 ```
+
+**Two sample SQL variants — pick the one matching your join target:**
+
+| Field | When to paste |
+|-------|---------------|
+| `sample_join_sql_vl` | **Most common.** Joining to the `_VL` view. No `LANGUAGE` predicate — the view already filters `USERENV('LANG')` internally. Pasting a `LANGUAGE` line here causes `ORA-00904: "LANGUAGE": invalid identifier`. |
+| `sample_join_sql_tl` | Joining directly to the `_TL` translation table (rare). Includes the `LANGUAGE` predicate. |
+| `sample_join_sql` | **Deprecated** alias for `sample_join_sql_tl`, kept one release. Migrate to the explicit `_vl` / `_tl` fields. |
+
+When the target has neither a `_TL` nor `_VL` companion, only a single `sample_join_sql` is emitted (no `LANGUAGE` line).
 
 **When the column resolves to FND_LOOKUPS (code/type/flag columns):**
 ```json
@@ -378,7 +400,9 @@ oracle-fusion-schema lookup-target INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID --json
 | 2 | `heuristic` | medium | Naming conventions: `*_TYPE_ID` -> `*_TYPES_B`, `*_CODE`/`*_FLAG` -> `FND_LOOKUPS` |
 | 3 | `static_map` | medium | Top-20 cross-module FK targets (VENDOR_ID, PERSON_ID, LEDGER_ID, etc.) |
 
-**Key fields:** Use `target.join_column` for your WHERE clause, `target.name_column` for the display value, and `target.data_source` for the BIP JDBC connection. The `sample_join_sql` is a copy-pasteable WHERE fragment.
+**Key fields:** Use `target.join_column` for your WHERE clause, `target.name_column` for the display value, and `target.data_source` for the BIP JDBC connection. Prefer `sample_join_sql_vl` as your copy-pasteable WHERE fragment.
+
+**`join_column` is always populated when a target resolves.** Resolution order: target primary key → same-name column on the target (handles natural keys like `PAYMENT_METHOD_CODE` when the docs recorded no PK) → first `_ID` column → `LOOKUP_CODE` for FND_LOOKUPS. If genuinely unresolvable, it serializes as `null` (not `""`) and `resolution.warning` explains why.
 
 **Flags:**
 - `--strict` -- Exit code 1 if no target found (default: returns `resolution.method = "none"` with advice).
@@ -481,18 +505,22 @@ Old way (5 calls):
 New way (1 call):
   oracle-fusion-schema lookup-target INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID --json
   --> Returns everything: target table, _TL, _VL, join column, name column,
-      data source, and sample JOIN SQL ready to paste
+      data source, and TWO sample JOIN SQL variants ready to paste
 
-Use the sample_join_sql directly in your WHERE clause:
+If your data set joins to the _VL view (the usual choice), paste sample_join_sql_vl:
+  AND src.supply_source_type_id = tgt.transaction_source_type_id
+  (no LANGUAGE line -- the _VL view already filters USERENV('LANG'))
+
+Only if you join the raw _TL table, paste sample_join_sql_tl:
   AND src.supply_source_type_id = tgt.transaction_source_type_id
   AND tgt.language = USERENV('LANG')
 
 For FND_LOOKUPS-based codes (ITEM_TYPE, PARTY_TYPE, STATUS_CODE, etc.):
   oracle-fusion-schema lookup-target EGP_SYSTEM_ITEMS_B.ITEM_TYPE --json
-  --> Returns FND_LOOKUP_VALUES with lookup_type='ITEM_TYPE' and sample SQL:
-      AND src.item_type = lk.lookup_code
-      AND lk.lookup_type = 'ITEM_TYPE'
-      AND lk.language    = USERENV('LANG')
+  --> Returns FND_LOOKUP_VALUES with lookup_type='ITEM_TYPE'.
+      sample_join_sql_vl:
+        AND src.item_type = lk.lookup_code
+        AND lk.lookup_type = 'ITEM_TYPE'
 ```
 
 ---
@@ -532,4 +560,6 @@ For FND_LOOKUPS-based codes (ITEM_TYPE, PARTY_TYPE, STATUS_CODE, etc.):
 
 11. **Use `lookup-target` for any coded column before manually chasing lookups.** If a column ends in `_TYPE_ID`, `_CODE`, `_STATUS`, `_FLAG`, or is a short coded value like `ITEM_TYPE`, run `lookup-target TABLE.COLUMN --json` first. It resolves the full _B/_TL/_VL chain, join column, name column, and data source in one call. Check `resolution.confidence` -- `high` means FK metadata backed it, `medium` means naming heuristic or static map.
 
-12. **The `sample_join_sql` from `lookup-target` is copy-pasteable.** It uses `src`/`tgt`/`lk` aliases matching BIP SQL conventions. For FND_LOOKUPS targets, it includes the `lookup_type` and `language` filters automatically.
+12. **Paste `sample_join_sql_vl`, not `sample_join_sql_tl`, when joining to a `_VL` view.** Fusion `_VL` views are defined as `_B ⋈ _TL WHERE _TL.LANGUAGE = USERENV('LANG')` — the `LANGUAGE` column is **not projected** out of the view. Pasting the `_tl` variant (with `AND tgt.language = USERENV('LANG')`) against a `_VL` view causes `ORA-00904: "LANGUAGE": invalid identifier` at runtime. The `_vl` variant omits that line. The bare `sample_join_sql` field is a deprecated alias for `_tl` — don't rely on it.
+
+13. **`describe <VIEW> --json` now returns a synthesized `columns` array.** Use it to confirm a column exists on the `_VL`/`_V` view before referencing it. The `column_source` field tells you whether the columns came from docs or were synthesized from `_B`+`_TL`. A synthesized `_VL` list never contains `LANGUAGE` — matching what you can actually SELECT from the view.

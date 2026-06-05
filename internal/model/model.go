@@ -17,19 +17,22 @@ type Module struct {
 
 // Table represents an Oracle Fusion table or view.
 type Table struct {
-	ID          int64    `json:"id,omitempty"`
-	Name        string   `json:"name"`
-	Domain      string   `json:"domain"`
-	Module      string   `json:"module"`
-	Type        string   `json:"type"` // TABLE or VIEW
-	Owner       string   `json:"owner,omitempty"`
-	Schema      string   `json:"schema,omitempty"`
-	Description string   `json:"description"`
-	DocURL      string   `json:"doc_url"`
-	Columns     []Column `json:"columns,omitempty"`
-	PrimaryKey  *PK      `json:"primary_key,omitempty"`
-	Indexes     []Index  `json:"indexes,omitempty"`
-	ForeignKeys []FK     `json:"foreign_keys,omitempty"`
+	ID     int64  `json:"id,omitempty"`
+	Name   string `json:"name"`
+	Domain string `json:"domain"`
+	Module string `json:"module"`
+	Type   string `json:"type"` // TABLE or VIEW
+	Owner  string `json:"owner,omitempty"`
+	Schema string `json:"schema,omitempty"`
+	// ColumnSource indicates how Columns was populated for views:
+	// "docs", "synthesized_from_b_tl", or "unknown". Empty for base tables.
+	ColumnSource string   `json:"column_source,omitempty"`
+	Description  string   `json:"description"`
+	DocURL       string   `json:"doc_url"`
+	Columns      []Column `json:"columns,omitempty"`
+	PrimaryKey   *PK      `json:"primary_key,omitempty"`
+	Indexes      []Index  `json:"indexes,omitempty"`
+	ForeignKeys  []FK     `json:"foreign_keys,omitempty"`
 }
 
 // Column represents a column in a table or view.
@@ -94,8 +97,8 @@ type SearchResult struct {
 
 // SyncStats tracks sync progress.
 type SyncStats struct {
-	Domain      string `json:"domain"`
-	TablesFound int    `json:"tables_found"`
-	TablesSynced int   `json:"tables_synced"`
-	Errors      int    `json:"errors"`
+	Domain       string `json:"domain"`
+	TablesFound  int    `json:"tables_found"`
+	TablesSynced int    `json:"tables_synced"`
+	Errors       int    `json:"errors"`
 }

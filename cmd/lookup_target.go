@@ -25,6 +25,14 @@ Resolution cascade:
   2. Naming conventions (*_TYPE_ID, *_CODE, *_STATUS) — confidence: medium
   3. Static map of top-20 cross-module FK targets — confidence: medium
 
+Sample JOIN SQL fields in --json output:
+  sample_join_sql_vl  Paste when joining to the _VL view (most common; the view
+                      pre-filters USERENV('LANG'), so no LANGUAGE predicate).
+  sample_join_sql_tl  Paste when joining directly to the _TL translation table
+                      (includes the LANGUAGE predicate; rarely needed).
+  sample_join_sql     DEPRECATED alias for sample_join_sql_tl, kept one release
+                      for compatibility. Migrate to the explicit _tl / _vl fields.
+
 Derives entirely from data the CLI already indexes — no new data ingestion required.`,
 	Example: `  oracle-fusion-schema lookup-target INV_RESERVATIONS.SUPPLY_SOURCE_TYPE_ID
   oracle-fusion-schema lookup-target AP_INVOICES_ALL.VENDOR_ID --json
@@ -107,7 +115,11 @@ func runLookupTarget(cmd *cobra.Command, args []string) error {
 	if result.Target.VLView != nil {
 		fmt.Printf("  _VL:     %s\n", *result.Target.VLView)
 	}
-	fmt.Printf("Join:      %s = %s\n", result.Source.Column, result.Target.JoinColumn)
+	joinDisplay := "(unresolved)"
+	if result.Target.JoinColumn != nil {
+		joinDisplay = *result.Target.JoinColumn
+	}
+	fmt.Printf("Join:      %s = %s\n", result.Source.Column, joinDisplay)
 	if result.Target.NameColumn != "" {
 		fmt.Printf("Name col:  %s\n", result.Target.NameColumn)
 	}
@@ -123,14 +135,29 @@ func runLookupTarget(cmd *cobra.Command, args []string) error {
 	if result.Resolution.Note != "" {
 		fmt.Printf("Note:      %s\n", result.Resolution.Note)
 	}
+	if result.Resolution.Warning != "" {
+		fmt.Printf("Warning:   %s\n", result.Resolution.Warning)
+	}
 
-	if result.SampleJoinSQL != "" {
-		fmt.Println()
-		fmt.Println("Sample JOIN SQL:")
-		for _, line := range strings.Split(result.SampleJoinSQL, "\n") {
-			fmt.Printf("  %s\n", line)
-		}
+	// Sample SQL: prefer showing the _VL variant (most common join target),
+	// then the _TL variant. Fall back to the single fragment.
+	if result.SampleJoinSQLVL != "" {
+		printSQLBlock("Sample JOIN SQL (join to _VL view — recommended):", result.SampleJoinSQLVL)
+	}
+	if result.SampleJoinSQLTL != "" {
+		printSQLBlock("Sample JOIN SQL (join to _TL table — includes LANGUAGE):", result.SampleJoinSQLTL)
+	}
+	if result.SampleJoinSQLVL == "" && result.SampleJoinSQLTL == "" && result.SampleJoinSQL != "" {
+		printSQLBlock("Sample JOIN SQL:", result.SampleJoinSQL)
 	}
 
 	return nil
+}
+
+func printSQLBlock(title, sql string) {
+	fmt.Println()
+	fmt.Println(title)
+	for _, line := range strings.Split(sql, "\n") {
+		fmt.Printf("  %s\n", line)
+	}
 }

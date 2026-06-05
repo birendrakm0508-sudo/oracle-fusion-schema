@@ -8,6 +8,7 @@ import (
 
 	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/db"
 	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/mapping"
+	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/model"
 )
 
 // SourceInfo describes the input column being resolved.
@@ -19,14 +20,14 @@ type SourceInfo struct {
 
 // TargetInfo describes the resolved lookup target.
 type TargetInfo struct {
-	BaseTable         string `json:"base_table"`
+	BaseTable         string  `json:"base_table"`
 	TLTable           *string `json:"tl_table"`
 	VLView            *string `json:"vl_view"`
-	JoinColumn        string `json:"join_column"`
-	NameColumn        string `json:"name_column"`
-	DescriptionColumn string `json:"description_column,omitempty"`
-	DataSource        string `json:"data_source"`
-	LookupType        string `json:"lookup_type,omitempty"`
+	JoinColumn        *string `json:"join_column"` // nil -> null when unresolvable
+	NameColumn        string  `json:"name_column"`
+	DescriptionColumn string  `json:"description_column,omitempty"`
+	DataSource        string  `json:"data_source"`
+	LookupType        string  `json:"lookup_type,omitempty"`
 }
 
 // ResolutionInfo describes how the target was determined.
@@ -36,14 +37,25 @@ type ResolutionInfo struct {
 	TLExists   bool   `json:"tl_exists"`
 	VLExists   bool   `json:"vl_exists"`
 	Note       string `json:"note,omitempty"`
+	Warning    string `json:"warning,omitempty"` // set when join_column could not be resolved
 }
 
 // LookupResult is the complete output of a lookup-target resolution.
+//
+// Sample SQL fields:
+//   - sample_join_sql_vl: paste when joining to the _VL view (most common; the
+//     view pre-filters USERENV('LANG'), so no LANGUAGE predicate is needed).
+//   - sample_join_sql_tl: paste when joining directly to the _TL translation
+//     table (includes the LANGUAGE predicate).
+//   - sample_join_sql: DEPRECATED alias for sample_join_sql_tl (kept one release
+//     for backward compatibility; migrate to the explicit _tl / _vl fields).
 type LookupResult struct {
-	Source        SourceInfo     `json:"source"`
-	Target        *TargetInfo    `json:"target,omitempty"`
-	Resolution    ResolutionInfo `json:"resolution"`
-	SampleJoinSQL string         `json:"sample_join_sql,omitempty"`
+	Source          SourceInfo     `json:"source"`
+	Target          *TargetInfo    `json:"target,omitempty"`
+	Resolution      ResolutionInfo `json:"resolution"`
+	SampleJoinSQLTL string         `json:"sample_join_sql_tl,omitempty"`
+	SampleJoinSQLVL string         `json:"sample_join_sql_vl,omitempty"`
+	SampleJoinSQL   string         `json:"sample_join_sql,omitempty"` // deprecated alias for _tl
 }
 
 // ErrorResult is returned when no target is found and --strict is set.
@@ -266,12 +278,24 @@ func buildResult(store *db.Store, source SourceInfo, targetBase, method, confide
 	nameCol := ""
 	descCol := ""
 
-	// Try getting PK from the base table for join column
+	// Resolve the join column with a robust fallback cascade:
+	//   1. Target's primary key (authoritative; single or composite).
+	//   2. Same-name column on the target matching the source column. This is a
+	//      strong FK signal for natural/code keys (e.g. PAYMENT_METHOD_CODE) when
+	//      the docs did not record a primary key for the base table.
+	//   3. First _ID column on the target (handles surrogate-key joins).
 	baseTable, _ := store.GetTable(targetBase)
 	if baseTable != nil && baseTable.PrimaryKey != nil && len(baseTable.PrimaryKey.Columns) > 0 {
-		joinCol = baseTable.PrimaryKey.Columns[0]
+		joinCol = strings.Join(baseTable.PrimaryKey.Columns, ", ")
 	}
-	// Fallback: first _ID column
+	if joinCol == "" && baseTable != nil {
+		for _, c := range baseTable.Columns {
+			if c.Name == source.Column {
+				joinCol = c.Name
+				break
+			}
+		}
+	}
 	if joinCol == "" && baseTable != nil {
 		for _, c := range baseTable.Columns {
 			if strings.HasSuffix(c.Name, "_ID") {
@@ -320,13 +344,16 @@ func buildResult(store *db.Store, source SourceInfo, targetBase, method, confide
 	// Determine data source
 	ds := mapping.IdentifyDataSource(targetBase)
 
-	// Build target info
+	// Build target info. join_column is a pointer so it can serialize to null
+	// when no candidate could be resolved (rather than an empty string).
 	target := &TargetInfo{
 		BaseTable:         targetBase,
-		JoinColumn:        joinCol,
 		NameColumn:        nameCol,
 		DescriptionColumn: descCol,
 		DataSource:        ds.DataSource,
+	}
+	if joinCol != "" {
+		target.JoinColumn = &joinCol
 	}
 	if tlExists {
 		target.TLTable = &tlTable
@@ -347,25 +374,51 @@ func buildResult(store *db.Store, source SourceInfo, targetBase, method, confide
 		}
 	}
 
-	// Generate sample join SQL
-	sampleSQL := generateJoinSQL(source, target, tlExists, isFndLookup)
-
-	return &LookupResult{
-		Source: source,
-		Target: target,
-		Resolution: ResolutionInfo{
-			Method:     method,
-			Confidence: confidence,
-			TLExists:   tlExists,
-			VLExists:   vlExists,
-			Note:       note,
-		},
-		SampleJoinSQL: sampleSQL,
+	resolution := ResolutionInfo{
+		Method:     method,
+		Confidence: confidence,
+		TLExists:   tlExists,
+		VLExists:   vlExists,
+		Note:       note,
 	}
+	if target.JoinColumn == nil {
+		resolution.Warning = fmt.Sprintf(
+			"Could not resolve join column for %s: no primary key, same-name, or _ID column found. Inspect 'describe %s'.",
+			targetBase, targetBase)
+	}
+
+	// Generate sample join SQL variants.
+	tlSQL, vlSQL, singleSQL := generateJoinSQLVariants(source, target, tlExists, vlExists, isFndLookup)
+
+	result := &LookupResult{
+		Source:     source,
+		Target:     target,
+		Resolution: resolution,
+	}
+	switch {
+	case tlExists && vlExists:
+		result.SampleJoinSQLTL = tlSQL
+		result.SampleJoinSQLVL = vlSQL
+		result.SampleJoinSQL = tlSQL // deprecated alias = _tl
+	case tlExists:
+		result.SampleJoinSQLTL = tlSQL
+		result.SampleJoinSQL = tlSQL
+	case vlExists:
+		result.SampleJoinSQLVL = vlSQL
+		result.SampleJoinSQL = vlSQL
+	default:
+		// Neither companion exists: a single fragment with no LANGUAGE line.
+		result.SampleJoinSQL = singleSQL
+	}
+
+	return result
 }
 
-// generateJoinSQL creates a sample WHERE-clause fragment for the resolved join.
-func generateJoinSQL(source SourceInfo, target *TargetInfo, hasTL, isFndLookup bool) string {
+// generateJoinSQLVariants builds the _TL-style, _VL-style, and single
+// WHERE-clause fragments for the resolved join. The _TL variant includes the
+// LANGUAGE predicate; the _VL and single variants do not (the _VL view already
+// filters USERENV('LANG') internally).
+func generateJoinSQLVariants(source SourceInfo, target *TargetInfo, tlExists, vlExists, isFndLookup bool) (tl, vl, single string) {
 	srcCol := strings.ToLower(source.Column)
 
 	if isFndLookup {
@@ -373,18 +426,103 @@ func generateJoinSQL(source SourceInfo, target *TargetInfo, hasTL, isFndLookup b
 		if lookupType == "" {
 			lookupType = strings.ToUpper(source.Column)
 		}
-		return fmt.Sprintf(
-			"AND src.%s = lk.lookup_code\nAND lk.lookup_type = '%s'\nAND lk.language    = USERENV('LANG')",
-			srcCol, lookupType)
+		base := fmt.Sprintf("AND src.%s = lk.lookup_code\nAND lk.lookup_type = '%s'", srcCol, lookupType)
+		tl = base + "\nAND lk.language    = USERENV('LANG')"
+		vl = base
+		single = base
+		return tl, vl, single
 	}
 
-	joinCol := strings.ToLower(target.JoinColumn)
-	lines := []string{
-		fmt.Sprintf("AND src.%s = tgt.%s", srcCol, joinCol),
-	}
-	if hasTL {
-		lines = append(lines, "AND tgt.language = USERENV('LANG')")
+	// Use the first column if the join is composite; the full list is still in
+	// target.join_column for the consumer.
+	joinCol := "<join_column>"
+	if target.JoinColumn != nil {
+		jc := *target.JoinColumn
+		if idx := strings.Index(jc, ","); idx >= 0 {
+			jc = strings.TrimSpace(jc[:idx])
+		}
+		joinCol = strings.ToLower(jc)
 	}
 
-	return strings.Join(lines, "\n")
+	base := fmt.Sprintf("AND src.%s = tgt.%s", srcCol, joinCol)
+	tl = base + "\nAND tgt.language = USERENV('LANG')"
+	vl = base
+	single = base
+	return tl, vl, single
+}
+
+// SynthesizeViewColumns returns the column list for a view. Oracle's _VL / _V
+// view documentation pages do not enumerate columns, so the CLI synthesizes
+// them from the underlying _B base table and _TL translation table following
+// the standard Fusion convention:
+//
+//	SELECT _B.*, _TL.<translated columns>
+//	FROM _B JOIN _TL ON _B.<pk> = _TL.<pk>
+//	WHERE _TL.LANGUAGE = USERENV('LANG')
+//
+// The LANGUAGE and SOURCE_LANG columns are filtered out by the view definition
+// and therefore excluded from the synthesized list.
+//
+// Returns the columns and a column_source marker:
+//   - "docs": the view already carried columns from the documentation
+//   - "synthesized_from_b_tl": columns composed from _B (plus optional _TL)
+//   - "unknown": no base table found; columns could not be synthesized
+func SynthesizeViewColumns(store *db.Store, view *model.Table) ([]model.Column, string) {
+	// If the docs already provided columns, trust them.
+	if len(view.Columns) > 0 {
+		return view.Columns, "docs"
+	}
+
+	name := strings.ToUpper(view.Name)
+
+	// Derive the logical root by stripping the view suffix.
+	root := name
+	for _, suffix := range []string{"_VL", "_V"} {
+		if strings.HasSuffix(root, suffix) {
+			root = strings.TrimSuffix(root, suffix)
+			break
+		}
+	}
+
+	// Locate the base table: prefer <root>_B, fall back to <root> itself.
+	var base *model.Table
+	for _, cand := range []string{root + "_B", root} {
+		if t, _ := store.GetTable(cand); t != nil && len(t.Columns) > 0 {
+			base = t
+			break
+		}
+	}
+	if base == nil {
+		return nil, "unknown"
+	}
+
+	// Start with all base columns.
+	cols := make([]model.Column, 0, len(base.Columns))
+	seen := make(map[string]bool, len(base.Columns))
+	for _, c := range base.Columns {
+		cols = append(cols, c)
+		seen[c.Name] = true
+	}
+
+	// Append _TL columns not already present, excluding the language-filter
+	// columns the view does not project.
+	if tl, _ := store.GetTable(root + "_TL"); tl != nil {
+		for _, c := range tl.Columns {
+			if c.Name == "LANGUAGE" || c.Name == "SOURCE_LANG" {
+				continue
+			}
+			if seen[c.Name] {
+				continue
+			}
+			cols = append(cols, c)
+			seen[c.Name] = true
+		}
+	}
+
+	// Renumber positions sequentially for clean display.
+	for i := range cols {
+		cols[i].Position = i + 1
+	}
+
+	return cols, "synthesized_from_b_tl"
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
+	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/lookup"
 	"github.com/birendrakm0508-sudo/oracle-fusion-schema/internal/mapping"
 )
 
@@ -66,6 +67,14 @@ func runDescribe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("lookup table: %w", err)
 	}
+	if t != nil && strings.Contains(strings.ToUpper(t.Type), "VIEW") {
+		// Oracle's _VL / _V view docs don't enumerate columns. Synthesize them
+		// from the underlying _B / _TL tables so consumers can verify column
+		// existence on the view the CLI recommends.
+		cols, source := lookup.SynthesizeViewColumns(store, t)
+		t.Columns = cols
+		t.ColumnSource = source
+	}
 	if t == nil {
 		// Try case-insensitive partial match
 		results, _ := store.Search(tableName, "", "table", 5)
@@ -93,6 +102,9 @@ func runDescribe(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Domain:      %s (%s)\n", t.Domain, domainName(t.Domain))
 		fmt.Printf("Module:      %s\n", t.Module)
 		fmt.Printf("Data Source: %s\n", ds.DataSource)
+		if t.ColumnSource != "" {
+			fmt.Printf("Col Source:  %s\n", t.ColumnSource)
+		}
 		if t.Description != "" {
 			fmt.Printf("Description: %s\n", t.Description)
 		}
