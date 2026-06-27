@@ -120,6 +120,10 @@ func resolveDomainCode(input string) string {
 		"crm":           "OEDMS",
 		"common":        "OEDMA",
 		"apps":          "OEDMA",
+		"ppm":           "OEDPP",
+		"projects":      "OEDPP",
+		"project":       "OEDPP",
+		"grants":        "OEDPP",
 		// Direct codes
 		"oedmf": "OEDMF",
 		"oedsc": "OEDSC",
@@ -127,6 +131,7 @@ func resolveDomainCode(input string) string {
 		"oedmp": "OEDMP",
 		"oedms": "OEDMS",
 		"oedma": "OEDMA",
+		"oedpp": "OEDPP",
 	}
 
 	if code, ok := aliases[input]; ok {

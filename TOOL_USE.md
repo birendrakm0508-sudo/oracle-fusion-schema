@@ -1,7 +1,7 @@
 # oracle-fusion-schema -- Agent Tool Use Reference
 
 Binary: `oracle-fusion-schema` (or `oracle-fusion-schema.exe` on Windows)
-Database: `~/.oracle-fusion-schema/schema.db` (166 MB, 20,142 tables/views)
+Database: `~/.oracle-fusion-schema/schema.db` (191 MB, 21,718 tables/views across 7 domains)
 All commands accept `--json` for machine-readable output.
 
 ---
@@ -32,18 +32,21 @@ Don't know the table name?
 
 ## Domains
 
-Six indexed Oracle Fusion Cloud documentation domains:
+Seven indexed Oracle Fusion Cloud documentation domains:
 
-| Code  | Alias         | Tables | Data Source        | Prefix Examples              |
-|-------|---------------|--------|--------------------|------------------------------|
-| OEDMH | hcm           | 5,632  | ApplicationDB_HCM  | PAY_, PER_, HR_, BEN_, HWM_  |
-| OEDSC | scm           | 5,352  | ApplicationDB_FSCM | INV_, EGP_, MNT_, WIE_      |
-| OEDMS | sales, cx     | 4,439  | ApplicationDB_CRM  | ZMM_, ZCA_, ZSO_, MOO_      |
-| OEDMF | financials    | 4,014  | ApplicationDB_FSCM | GL_, AP_, AR_, FA_, XLA_     |
-| OEDMP | procurement   | 652    | ApplicationDB_FSCM | PO_, PON_, POZ_, ICX_        |
-| OEDMA | common        | 53     | ApplicationDB_FSCM | FND_, PER_                   |
+| Code  | Alias              | Tables | Data Source        | Prefix Examples              |
+|-------|--------------------|--------|--------------------|------------------------------|
+| OEDMH | hcm                | 5,632  | ApplicationDB_HCM  | PAY_, PER_, HR_, BEN_, HWM_  |
+| OEDSC | scm                | 5,352  | ApplicationDB_FSCM | INV_, EGP_, MNT_, WIE_      |
+| OEDMS | sales, cx          | 4,439  | ApplicationDB_CRM  | ZMM_, ZCA_, ZSO_, MOO_      |
+| OEDMF | financials         | 4,014  | ApplicationDB_FSCM | GL_, AP_, AR_, FA_, XLA_     |
+| OEDPP | ppm, projects      | 1,334  | ApplicationDB_FSCM | PJF_, PJC_, PJB_, PJS_, GMS_ |
+| OEDMP | procurement        | 652    | ApplicationDB_FSCM | PO_, PON_, POZ_, ICX_        |
+| OEDMA | common             | 295    | ApplicationDB_FSCM | FND_, PER_                   |
 
-Use domain aliases in commands: `tables hcm`, `search payroll --domain hcm`.
+Use domain aliases in commands: `tables hcm`, `search payroll --domain hcm`,
+`tables ppm`. OEDPP (Project Management) covers Projects (PJF/PJC/PJB/PJO/PJT)
+and Grants (GMS).
 
 ---
 
@@ -136,7 +139,7 @@ oracle-fusion-schema datasource PER_ALL_PEOPLE_F --json
 | Data Source          | Prefixes                                                    |
 |----------------------|-------------------------------------------------------------|
 | ApplicationDB_HCM   | PAY_, PER_, HR_, BEN_, HWM_, HRC_, HRI_, ANC_, CMP_, ORA_HCM_ |
-| ApplicationDB_FSCM  | GL_, AP_, AR_, PO_, PON_, POZ_, INV_, EGP_, PJC_, PJF_, FA_, XLA_, CST_, RCV_, ICX_, ASO_ |
+| ApplicationDB_FSCM  | GL_, AP_, AR_, PO_, PON_, POZ_, INV_, EGP_, FA_, XLA_, CST_, RCV_, ICX_, ASO_, PJF_, PJC_, PJB_, PJS_, PJT_, PJO_, PJR_, PJE_, PJL_, GMS_ (Projects/Grants) |
 | ApplicationDB_CRM   | ZMM_, ZCA_, ZSO_, MOO_, MKL_, MKT_, HBY_, CN_              |
 
 If a report joins tables from different data sources, you need separate data sets in the BIP data model (one per data source), linked at the data model level.
@@ -553,7 +556,7 @@ For FND_LOOKUPS-based codes (ITEM_TYPE, PARTY_TYPE, STATUS_CODE, etc.):
    - `PER_` = People, `PAY_` = Payroll, `BEN_` = Benefits, `ANC_` = Absence
    - `GL_` = General Ledger, `AP_` = Payables, `AR_` = Receivables
    - `PO_` = Purchasing, `INV_` = Inventory, `EGP_` = Product Hub
-   - `PJF_`/`PJC_` = Projects, `FA_` = Fixed Assets, `XLA_` = Subledger Accounting
+   - `PJF_`/`PJC_`/`PJB_`/`PJO_`/`PJT_`/`PJS_` = Projects (PPM, OEDPP), `GMS_` = Grants, `FA_` = Fixed Assets, `XLA_` = Subledger Accounting
    - `ZCA_` = Common CRM, `ZMM_` = Sales Activities, `ZSO_` = Sales Content
 
 10. **If mapping lookup returns nothing,** the table name may be the same in EBS and Fusion (e.g., `AP_INVOICES_ALL`, `GL_JE_HEADERS`). Try `describe` directly with the EBS name.

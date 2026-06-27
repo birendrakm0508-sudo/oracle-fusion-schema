@@ -211,6 +211,7 @@ func domainName(code string) string {
 		"OEDMP": "Procurement",
 		"OEDMS": "Sales/CX",
 		"OEDMA": "Common",
+		"OEDPP": "Project Management",
 	}
 	if n, ok := names[code]; ok {
 		return n

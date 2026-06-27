@@ -23,6 +23,7 @@ func KnownDomains() []model.Domain {
 		{Code: "OEDMP", Name: "Procurement", BaseURL: "https://docs.oracle.com/en/cloud/saas/procurement/26b/oedmp/", TOCURL: "https://docs.oracle.com/en/cloud/saas/procurement/26b/oedmp/toc.htm"},
 		{Code: "OEDMS", Name: "Sales/CX", BaseURL: "https://docs.oracle.com/en/cloud/saas/sales/oedms/", TOCURL: "https://docs.oracle.com/en/cloud/saas/sales/oedms/toc.htm"},
 		{Code: "OEDMA", Name: "Common", BaseURL: "https://docs.oracle.com/en/cloud/saas/applications-common/26b/oedma/", TOCURL: "https://docs.oracle.com/en/cloud/saas/applications-common/26b/oedma/toc.htm"},
+		{Code: "OEDPP", Name: "Project Management", BaseURL: "https://docs.oracle.com/en/cloud/saas/project-management/26b/oedpp/", TOCURL: "https://docs.oracle.com/en/cloud/saas/project-management/26b/oedpp/toc.htm"},
 	}
 }
 

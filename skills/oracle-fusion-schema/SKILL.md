@@ -9,7 +9,7 @@ description: >-
   source a table belongs to, discovering join columns between tables, mapping
   EBS table names to Fusion equivalents, or searching for tables by business
   concept. This skill replaces the web_search + web_fetch fallback in the BIP
-  report builder workflow with instant offline lookups across 20,142 indexed
+  report builder workflow with instant offline lookups across 21,718 indexed
   tables/views. Use this skill BEFORE the deloitte-bip-fusion-report-builder
   skill's oracle_docs.md recipe — it is faster, offline, and covers every
   table in every domain.
@@ -18,7 +18,7 @@ description: >-
 # Oracle Fusion Schema CLI
 
 Instant offline lookup for Oracle Fusion Cloud Tables and Views documentation.
-Covers **20,142 tables/views** across all 6 SaaS domains. Designed as the
+Covers **21,718 tables/views** across all 7 SaaS domains. Designed as the
 schema-lookup companion for AI agents building BI Publisher (BIP) reports.
 
 **Binary:** `oracle-fusion-schema`
@@ -81,16 +81,17 @@ the rest of the session.
 
 ## Domains
 
-| Code  | Alias        | Tables | Data Source         | Common Prefixes               |
-|-------|--------------|--------|---------------------|-------------------------------|
-| OEDMH | hcm          | 5,632  | ApplicationDB_HCM   | PAY_, PER_, HR_, BEN_, HWM_   |
-| OEDSC | scm          | 5,352  | ApplicationDB_FSCM  | INV_, EGP_, MNT_, WIE_        |
-| OEDMS | sales, cx    | 4,439  | ApplicationDB_CRM   | ZMM_, ZCA_, ZSO_, MOO_        |
-| OEDMF | financials   | 4,014  | ApplicationDB_FSCM  | GL_, AP_, AR_, FA_, XLA_       |
-| OEDMP | procurement  | 652    | ApplicationDB_FSCM  | PO_, PON_, POZ_, ICX_          |
-| OEDMA | common       | 53     | ApplicationDB_FSCM  | FND_, PER_                     |
+| Code  | Alias          | Tables | Data Source         | Common Prefixes               |
+|-------|----------------|--------|---------------------|-------------------------------|
+| OEDMH | hcm            | 5,632  | ApplicationDB_HCM   | PAY_, PER_, HR_, BEN_, HWM_   |
+| OEDSC | scm            | 5,352  | ApplicationDB_FSCM  | INV_, EGP_, MNT_, WIE_        |
+| OEDMS | sales, cx      | 4,439  | ApplicationDB_CRM   | ZMM_, ZCA_, ZSO_, MOO_        |
+| OEDMF | financials     | 4,014  | ApplicationDB_FSCM  | GL_, AP_, AR_, FA_, XLA_       |
+| OEDPP | ppm, projects  | 1,334  | ApplicationDB_FSCM  | PJF_, PJC_, PJB_, PJS_, GMS_   |
+| OEDMP | procurement    | 652    | ApplicationDB_FSCM  | PO_, PON_, POZ_, ICX_          |
+| OEDMA | common         | 295    | ApplicationDB_FSCM  | FND_, PER_                     |
 
-Use aliases in commands: `tables hcm`, `search payroll --domain hcm`.
+Use aliases in commands: `tables hcm`, `search payroll --domain hcm`, `tables ppm`.
 
 ---
 
@@ -185,7 +186,7 @@ oracle-fusion-schema datasource PER_ALL_PEOPLE_F --json
 | Data Source          | Prefixes                                                              |
 |----------------------|-----------------------------------------------------------------------|
 | ApplicationDB_HCM   | PAY_, PER_, HR_, BEN_, HWM_, HRC_, HRI_, ANC_, CMP_, ORA_HCM_        |
-| ApplicationDB_FSCM  | GL_, AP_, AR_, PO_, PON_, POZ_, INV_, EGP_, PJC_, PJF_, FA_, XLA_     |
+| ApplicationDB_FSCM  | GL_, AP_, AR_, PO_, POZ_, INV_, EGP_, FA_, XLA_, CST_, PJF_, PJC_, PJB_, PJS_, PJT_, PJO_, GMS_ (Projects/Grants) |
 | ApplicationDB_CRM   | ZMM_, ZCA_, ZSO_, MOO_, MKL_, MKT_, HBY_, CN_                        |
 
 **Cross-data-source reports:** If your report joins tables from different data
@@ -503,7 +504,7 @@ oracle-fusion-schema describe <TABLE> --json     --> instant, offline, structure
 - **Instant** — no network latency, no rate limiting
 - **Offline** — works without internet after initial sync
 - **Structured** — JSON output with typed fields, not scraped HTML
-- **Complete** — 20,142 tables vs. one table at a time
+- **Complete** — 21,718 tables vs. one table at a time
 - **Join discovery** — `columns` command finds FK paths across the entire schema
 - **Data source** — `datasource` command returns the exact `data_source_ref` value
   the BIP builder needs
@@ -541,6 +542,8 @@ When using column information from `describe` to write BIP SQL:
 | HRC_     | Recruiting            | INV_     | Inventory               |
 | PJF_     | Projects Foundation   | EGP_     | Product Hub / Items     |
 | PJC_     | Project Costing       | CST_     | Cost Management         |
+| PJB_     | Project Billing       | PJO_     | Project Control         |
+| GMS_     | Grants Management     | PJS_/PJT_| Projects (security/tasks) |
 | ZCA_     | Common CRM            | ZMM_     | Sales Activities        |
 | ZSO_     | Sales Content         | MOO_     | Order Management        |
 | MKT_     | Marketing             | FND_     | Foundation / Lookups    |

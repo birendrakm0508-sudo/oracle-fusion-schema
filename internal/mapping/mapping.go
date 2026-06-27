@@ -82,9 +82,9 @@ var dataSourceRules = []struct {
 		Notes:      "HCM, Payroll, Benefits, Talent, Workforce Management",
 	},
 	{
-		Prefixes:   []string{"GL_", "AP_", "AR_", "PO_", "POZ_", "INV_", "EGP_", "PJC_", "PJF_", "PJB_", "FA_", "CE_", "IBY_", "FUN_", "ZX_", "XLA_", "IEX_", "RCV_", "CST_", "WIP_", "MSC_", "MRP_", "WSH_", "ASN_", "OKC_", "IGC_", "DOO_", "ONT_"},
+		Prefixes:   []string{"GL_", "AP_", "AR_", "PO_", "POZ_", "INV_", "EGP_", "PJC_", "PJF_", "PJB_", "PJS_", "PJT_", "PJO_", "PJR_", "PJE_", "PJL_", "PRJ_", "GMS_", "FA_", "CE_", "IBY_", "FUN_", "ZX_", "XLA_", "IEX_", "RCV_", "CST_", "WIP_", "MSC_", "MRP_", "WSH_", "ASN_", "OKC_", "IGC_", "DOO_", "ONT_"},
 		DataSource: "ApplicationDB_FSCM",
-		Notes:      "Financials, SCM, Procurement, Projects, Order Management",
+		Notes:      "Financials, SCM, Procurement, Projects (PPM), Grants, Order Management",
 	},
 	{
 		Prefixes:   []string{"ZMM_", "ZCA_", "ZSO_", "MOO_", "MKL_", "MKT_", "FND_CRM", "HZ_", "JTF_", "SVC_"},
