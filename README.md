@@ -1,7 +1,7 @@
 # oracle-fusion-schema
 
 Offline CLI for querying Oracle Fusion Cloud's **Tables and Views**
-documentation. Indexes 20,142 tables/views across all 6 SaaS domains into a
+documentation. Indexes 21,718 tables/views across all 7 SaaS domains into a
 local SQLite database for instant schema lookup — no network required after
 initial sync.
 
@@ -15,7 +15,7 @@ keys, and the correct JDBC data source. Getting any of these wrong produces a
 data model that imports cleanly but fails at execute time — the worst kind of
 failure.
 
-Oracle's Tables and Views documentation spans 20,000+ pages across 6 domains.
+Oracle's Tables and Views documentation spans 21,000+ pages across 7 domains.
 Searching it manually is slow. Scraping it at runtime burns tokens and network
 calls.
 
@@ -27,7 +27,7 @@ questions in milliseconds.
 Requires [Go 1.22+](https://go.dev/dl/).
 
 ```bash
-go install github.com/<org>/oracle-fusion-schema@latest
+go install github.com/birendrakm0508-sudo/oracle-fusion-schema@latest
 ```
 
 Verify:
@@ -49,28 +49,61 @@ This fetches the Table of Contents page for each domain, discovers every
 table/view page, scrapes column definitions, primary keys, indexes, and
 foreign keys, then stores everything in a local SQLite database.
 
-- **Duration:** 15-30 minutes (depends on network speed)
+- **Duration:** ~15-25 minutes on a typical corporate network with the
+  default parallelism (`--workers 20`, `--throttle-ms 50`). See
+  [Performance & Parallelism Tuning](#performance--parallelism-tuning)
+  below for faster configs.
 - **Database location:** `~/.oracle-fusion-schema/schema.db`
-- **Database size:** ~166 MB
+- **Database size:** ~191 MB
 
 Sync individual domains:
 
 ```bash
 oracle-fusion-schema sync --domain hcm
-oracle-fusion-schema sync --domain financials --workers 10
+oracle-fusion-schema sync --domain financials --workers 40 --throttle-ms 0
 oracle-fusion-schema sync --domain scm --force     # re-download even if cached
 ```
+
+## Performance & Parallelism Tuning
+
+The sync command's throughput is governed by two flags. Defaults were raised
+in the 2026-06-27 release after measuring real-world wall-clock times.
+
+| Flag | Default | What it does |
+|------|---------|--------------|
+| `--workers N` | **20** (was 5 prior to 2026-06-27) | Concurrent fetcher goroutines. Doubling workers roughly doubles throughput until the network or `docs.oracle.com`'s CDN becomes the bottleneck. |
+| `--throttle-ms M` | **50** (was hardcoded 200 prior to 2026-06-27) | Per-request sleep in milliseconds after each fetch. Set to `0` to disable on fast networks. Raise if you see HTTP 429 responses. |
+
+**Three tuning presets:**
+
+| Config | Estimated wall-clock for full `--force` sync | When to use |
+|--------|----------------------------------------------|-------------|
+| Defaults (`--workers 20 --throttle-ms 50`) | **~15-25 min** | Typical corporate network with proxy. |
+| Aggressive (`--workers 40 --throttle-ms 0`) | **~5-8 min** | Fast network, no proxy, low latency to `docs.oracle.com`. |
+| Conservative (`--workers 10 --throttle-ms 200`) | ~30-45 min | If `docs.oracle.com` starts returning HTTP 429. |
+
+**Benchmark** (Common domain, 295 tables, default config): **14 seconds wall
+clock** — extrapolates to ~17 min for a full 21,718-table `--force` sync.
+
+### Important: do not run two `sync` commands concurrently
+
+The CLI does not (yet) hold a process-level lock on the SQLite database file.
+Running two `sync` invocations at the same time will produce a
+`SQLITE_BUSY` cascade plus the cryptic
+`cannot start a transaction within a transaction` error, and can leave
+domains partially populated. Run one sync at a time.
 
 ## What Gets Indexed
 
 | Domain | Code | Tables/Views | Data Source | Example Prefixes |
 |--------|------|-------------|-------------|------------------|
-| HCM | OEDMH | 5,632 | ApplicationDB_HCM | PAY_, PER_, HR_, BEN_ |
-| SCM | OEDSC | 5,352 | ApplicationDB_FSCM | INV_, EGP_, MNT_ |
-| Sales/CX | OEDMS | 4,439 | ApplicationDB_CRM | ZMM_, ZCA_, ZSO_ |
-| Financials | OEDMF | 4,014 | ApplicationDB_FSCM | GL_, AP_, AR_, FA_ |
-| Procurement | OEDMP | 652 | ApplicationDB_FSCM | PO_, PON_, POZ_ |
-| Common | OEDMA | 53 | ApplicationDB_FSCM | FND_ |
+| HCM | OEDMH | 5,632 | ApplicationDB_HCM | PAY_, PER_, HR_, BEN_, HWM_ |
+| SCM | OEDSC | 5,352 | ApplicationDB_FSCM | INV_, EGP_, MNT_, WIE_ |
+| Sales/CX | OEDMS | 4,439 | ApplicationDB_CRM | ZMM_, ZCA_, ZSO_, MOO_ |
+| Financials | OEDMF | 4,014 | ApplicationDB_FSCM | GL_, AP_, AR_, FA_, XLA_ |
+| Project Management | OEDPP | 1,334 | ApplicationDB_FSCM | PJF_, PJC_, PJB_, PJS_, GMS_ |
+| Procurement | OEDMP | 652 | ApplicationDB_FSCM | PO_, PON_, POZ_, ICX_ |
+| Common | OEDMA | 295 | ApplicationDB_FSCM | FND_, PER_ |
 
 For each table, the index stores:
 - Table name, type (Table/View), domain, module
@@ -228,7 +261,7 @@ determines it from the table prefix:
 | Data Source | Prefixes |
 |-------------|----------|
 | ApplicationDB_HCM | PAY_, PER_, HR_, BEN_, HWM_, HRC_, HRI_, ANC_, CMP_ |
-| ApplicationDB_FSCM | GL_, AP_, AR_, PO_, PON_, POZ_, INV_, EGP_, PJC_, PJF_, FA_, XLA_, CST_ |
+| ApplicationDB_FSCM | GL_, AP_, AR_, PO_, PON_, POZ_, INV_, EGP_, FA_, XLA_, CST_, RCV_, ICX_, ASO_, PJF_, PJC_, PJB_, PJS_, PJT_, PJO_, PJR_, PJE_, PJL_, GMS_ |
 | ApplicationDB_CRM | ZMM_, ZCA_, ZSO_, MOO_, MKL_, MKT_, HBY_, CN_ |
 
 If a report joins tables from different data sources, the BIP data model

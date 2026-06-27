@@ -533,10 +533,18 @@ func extractForeignKeys(doc *html.Node) []model.FK {
 }
 
 // ScrapeTablesConcurrently scrapes multiple table pages in parallel.
-func ScrapeTablesConcurrently(entries []TOCEntry, domain model.Domain, workers int, progress ProgressFunc) ([]*model.Table, []error) {
+//
+// workers     — number of concurrent fetcher goroutines. Values <= 0 fall back to 20.
+// throttleMs  — per-request sleep in milliseconds after each fetch, applied per worker.
+//               Set to 0 (or negative) to disable throttling entirely on fast networks.
+//               docs.oracle.com sits behind a CDN; ~50 ms / 20 workers ≈ 400 req/s, which
+//               it handles without rate-limiting in practice. Tune higher only if you
+//               observe HTTP 429s.
+func ScrapeTablesConcurrently(entries []TOCEntry, domain model.Domain, workers int, throttleMs int, progress ProgressFunc) ([]*model.Table, []error) {
 	if workers <= 0 {
-		workers = 5
+		workers = 20
 	}
+	throttle := time.Duration(throttleMs) * time.Millisecond
 
 	type result struct {
 		table *model.Table
@@ -556,8 +564,9 @@ func ScrapeTablesConcurrently(entries []TOCEntry, domain model.Domain, workers i
 				entry := entries[idx]
 				tbl, err := FetchTableDetail(entry, domain)
 				results <- result{table: tbl, err: err, idx: idx}
-				// Be polite to Oracle's servers
-				time.Sleep(200 * time.Millisecond)
+				if throttle > 0 {
+					time.Sleep(throttle)
+				}
 			}
 		}()
 	}

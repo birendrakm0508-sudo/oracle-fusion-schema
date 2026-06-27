@@ -10,10 +10,11 @@ import (
 )
 
 var (
-	syncDomain  string
-	syncWorkers int
-	syncForce   bool
-	syncQuiet   bool
+	syncDomain     string
+	syncWorkers    int
+	syncThrottleMs int
+	syncForce      bool
+	syncQuiet      bool
 )
 
 var syncCmd = &cobra.Command{
@@ -26,17 +27,22 @@ This fetches the TOC page for each domain, discovers all table/view pages,
 then scrapes each page for column definitions, primary keys, indexes, and
 foreign key relationships.
 
-First sync may take 15-30 minutes depending on network speed.`,
+Throughput is governed by --workers (parallel fetchers) and --throttle-ms
+(per-request sleep). Defaults are tuned for a typical corporate network and
+finish a full --force sync in ~15-25 min. On a fast network with no proxy,
+'--throttle-ms 0 --workers 40' can finish in ~5-8 min. If you start seeing
+HTTP 429 responses, raise --throttle-ms or lower --workers.`,
 	Example: `  oracle-fusion-schema sync
   oracle-fusion-schema sync --domain hcm
-  oracle-fusion-schema sync --workers 10
-  oracle-fusion-schema sync --force`,
+  oracle-fusion-schema sync --workers 40 --throttle-ms 0     # max throughput
+  oracle-fusion-schema sync --force --workers 20`,
 	RunE: runSync,
 }
 
 func init() {
 	syncCmd.Flags().StringVar(&syncDomain, "domain", "", "Sync specific domain only (e.g., hcm, financials)")
-	syncCmd.Flags().IntVar(&syncWorkers, "workers", 5, "Number of parallel fetchers")
+	syncCmd.Flags().IntVar(&syncWorkers, "workers", 20, "Number of parallel fetchers")
+	syncCmd.Flags().IntVar(&syncThrottleMs, "throttle-ms", 50, "Per-request sleep in milliseconds (0 disables throttling)")
 	syncCmd.Flags().BoolVar(&syncForce, "force", false, "Re-sync even if data exists")
 	syncCmd.Flags().BoolVar(&syncQuiet, "quiet", false, "Suppress progress output")
 	rootCmd.AddCommand(syncCmd)
@@ -132,7 +138,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		tables, errs := scraper.ScrapeTablesConcurrently(entries, domain, syncWorkers, progress)
+		tables, errs := scraper.ScrapeTablesConcurrently(entries, domain, syncWorkers, syncThrottleMs, progress)
 
 		if !syncQuiet {
 			fmt.Println()

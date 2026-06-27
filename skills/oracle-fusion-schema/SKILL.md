@@ -41,7 +41,7 @@ oracle-fusion-schema version --json
 - The CLI is not installed. Tell the user:
   ```
   oracle-fusion-schema is not installed. Install it with:
-    go install github.com/<org>/oracle-fusion-schema@latest
+    go install github.com/birendrakm0508-sudo/oracle-fusion-schema@latest
   Then run: oracle-fusion-schema sync
   ```
 - Do NOT attempt to install it yourself. Do NOT fall back to web_search.
@@ -59,7 +59,11 @@ syncing. Tell the user:
   ```
   The schema database needs to be populated. Run:
     oracle-fusion-schema sync
-  This takes 15-30 minutes on first run.
+  At default parallelism (--workers 20, --throttle-ms 50) this takes
+  ~15-25 min on a typical corporate network. For ~5-8 min on a fast
+  network, use: oracle-fusion-schema sync --workers 40 --throttle-ms 0
+  Do NOT run two sync commands at the same time — the CLI has no
+  process-level lock and they will collide on SQLITE_BUSY.
   ```
 
 **Once preflight passes, do not repeat it.** Cache the result mentally for

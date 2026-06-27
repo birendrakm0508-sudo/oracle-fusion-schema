@@ -412,16 +412,36 @@ When the target has neither a `_TL` nor `_VL` companion, only a single `sample_j
 
 ---
 
-### 10. `sync [--domain <d>] [--workers N] [--force] [--quiet]`
+### 10. `sync [--domain <d>] [--workers N] [--throttle-ms M] [--force] [--quiet]`
 
 **Purpose:** Download and index documentation from docs.oracle.com. Only needed on first setup or to refresh data.
 
 ```
-oracle-fusion-schema sync                        # All domains
-oracle-fusion-schema sync --domain hcm --force   # Re-sync one domain
+oracle-fusion-schema sync                              # All domains, defaults
+oracle-fusion-schema sync --domain hcm --force         # Re-sync one domain
+oracle-fusion-schema sync --workers 40 --throttle-ms 0 # Maximum throughput
 ```
 
-The database is pre-populated. You should NOT need to run sync during normal BIP report development.
+**Throughput tuning (added 2026-06-27):**
+
+| Flag | Default | What it does |
+|------|---------|--------------|
+| `--workers` | **20** (was 5 prior to 2026-06-27) | Number of concurrent fetcher goroutines. Doubling workers ~doubles throughput up to network/CDN saturation. |
+| `--throttle-ms` | **50** (was hardcoded 200 prior to 2026-06-27) | Per-request sleep in milliseconds after each fetch. Set to `0` to disable on fast networks. Raise if you see HTTP 429. |
+| `--force` | false | Re-fetch and re-index even when domain is already cached. |
+| `--quiet` | false | Suppress per-table progress lines. |
+
+**Expected wall-clock for a full `--force` sync (~21,718 tables across 7 domains):**
+
+| Config | Estimated time | When to use |
+|--------|---------------|-------------|
+| Defaults (`--workers 20 --throttle-ms 50`) | ~15–25 min | Typical corporate network |
+| Aggressive (`--workers 40 --throttle-ms 0`) | ~5–8 min | Fast network, no proxy |
+| Conservative (`--workers 10 --throttle-ms 200`) | ~30–45 min | If docs.oracle.com starts returning 429s |
+
+**Safety notes:**
+- The CLI does **not** currently hold a process-level lock on the SQLite file. Do **not** run two `sync` commands concurrently against the same database — they will collide on file locks and produce `SQLITE_BUSY` cascades plus the "cannot start transaction within transaction" error. Run one at a time.
+- The database is pre-populated. You should NOT need to run `--force` during normal BIP report development. Re-sync only when Oracle ships a quarterly docs update or when a specific domain's cache is missing tables.
 
 ---
 
